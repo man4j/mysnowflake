@@ -1,0 +1,2 @@
+# mysnowflake
+SnowFlake ClientId Generator
