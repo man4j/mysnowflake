@@ -22,7 +22,7 @@ public class SnowFlakeIdGenerator {
      * @param clientId Client ID from 0 to (maxClients - 1)
      */
     public SnowFlakeIdGenerator(long maxClients, long clientId) {
-        if (maxClients < 0 || maxClients > 1024) {
+        if (maxClients <= 0 || maxClients > 1024) {
             throw new IllegalStateException("Too many clients");
         }
 
