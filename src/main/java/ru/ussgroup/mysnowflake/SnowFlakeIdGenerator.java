@@ -8,26 +8,29 @@ public class SnowFlakeIdGenerator {
     private static final long TIMESTAMP_BITS = 41L;
     private static final long TWEPOCH = 1288834974657L;
     private static final int AVAILABLE_BITS = Long.SIZE - 1;//Необходимо для работы со знаковыми числами
+    private static final long TIMESTAMP_SHIFT = AVAILABLE_BITS - TIMESTAMP_BITS;
     
-    private final long clientId;
-    private final long sequenceMax;
-    private final long sequenceShift;
-    private final long timestampShift;
+    private final int clientId;
+    private final int sequenceMax;
+    private final int sequenceShift;
     
     private long lastTimestamp;
     private long sequence;
+    
+    private volatile long timeShiftCount;
+    private volatile long sequenceOverflowCount;
 
     /**
      * @param maxClients Max planned clients in your cluster
      * @param clientId Client ID from 0 to (maxClients - 1)
      */
-    public SnowFlakeIdGenerator(long maxClients, long clientId) {
+    public SnowFlakeIdGenerator(long maxClients, int clientId) {
         if (maxClients <= 0 || maxClients > 1024) {
             throw new IllegalStateException("Too many clients");
         }
 
-        long clientIdBits = Long.toBinaryString(maxClients - 1).length();
-        long maxClientId = -1L ^ (-1L << clientIdBits);
+        int clientIdBits = Long.toBinaryString(maxClients - 1).length();
+        int maxClientId = -1 ^ (-1 << clientIdBits);
         
         if (clientId < 0 || clientId > maxClientId) {
             throw new IllegalStateException("Incorrect clientId. Min client id is 0. Max client id is: " + maxClientId);
@@ -35,11 +38,23 @@ public class SnowFlakeIdGenerator {
         
         long sequenceBits = AVAILABLE_BITS - TIMESTAMP_BITS - clientIdBits;
                 
-        timestampShift = AVAILABLE_BITS - TIMESTAMP_BITS;
-        sequenceShift = AVAILABLE_BITS - TIMESTAMP_BITS - sequenceBits;
+        sequenceShift = clientIdBits;
         
-        sequenceMax = -1L ^ (-1L << sequenceBits);//максимальное число последовательности, которое может быть сгенерировано в 1 миллисекунду
+        sequenceMax = -1 ^ (-1 << sequenceBits);//максимальное число последовательности, которое может быть сгенерировано в 1 миллисекунду
+        
         this.clientId = clientId;
+    }
+    
+    public int getSequenceMax() {
+        return sequenceMax;
+    }
+    
+    public long getTimeShiftCount() {
+        return timeShiftCount;
+    }
+    
+    public long getSequenceOverflowCount() {
+        return sequenceOverflowCount;
     }
     
     /**
@@ -54,14 +69,18 @@ public class SnowFlakeIdGenerator {
     public synchronized long generateLongId() {
         long timestamp = System.currentTimeMillis();
         
-        if(timestamp < lastTimestamp) {
-            timestamp = tilNextMillis(lastTimestamp);
+        if(timestamp < lastTimestamp) {//Значит перевели часы
+            timeShiftCount++;
+            
+            timestamp = tilNextMillis(lastTimestamp);//Ждем следующего момента
         }
         
         if (lastTimestamp == timestamp) {
             sequence++;
             
             if (sequence > sequenceMax) {
+                sequenceOverflowCount++;
+                
                 sequence = 0;
                 
                 timestamp = tilNextMillis(lastTimestamp);
@@ -72,7 +91,7 @@ public class SnowFlakeIdGenerator {
         
         lastTimestamp = timestamp;
         //0|timestampBits|sequenceBits|clientIdBits
-        return ((timestamp - TWEPOCH) << timestampShift) | (sequence << sequenceShift) | clientId;
+        return ((timestamp - TWEPOCH) << TIMESTAMP_SHIFT) | (sequence << sequenceShift) | clientId;
     }
 
     private long tilNextMillis(long lastTs) {
